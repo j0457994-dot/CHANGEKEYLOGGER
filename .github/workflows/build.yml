@@ -11,30 +11,32 @@ jobs:
       with:
         arch: x64
     
-    - name: Create output dir
+    - name: Create dist
       shell: cmd
       run: mkdir dist
     
-    - name: Compile FUD EXE
+    - name: Compile + Link FUD EXE
       shell: cmd
       run: |
         cl /O2 /MT /DNDEBUG /GS- /Gy /GL /favor:blend ^
-        /Fe:dist/Changes.exe Changes.cpp ^
-        /link kernel32.lib user32.lib shell32.lib ole32.lib winhttp.lib ^
-        /LTCG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup ^
-        /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO /NODEFAULTLIB:msvcrt.lib
+          /Fe:dist/Changes.exe Changes.cpp gdi32.lib advapi32.lib ^
+          kernel32.lib user32.lib shell32.lib ole32.lib winhttp.lib ^
+          /link /LTCG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup ^
+          /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO
         
-    - name: Show file info
+    - name: Verify build
       shell: cmd
-      run: dir dist\Changes.exe
+      run: |
+        dir dist\Changes.exe
+        dist\Changes.exe /?
     
-    - name: Upload Artifact
+    - name: Upload EXE
       uses: actions/upload-artifact@v4
       with:
         name: Changes.exe
         path: dist/Changes.exe
         
-    - name: Create Release
+    - name: Auto Release
       if: github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v2
       with:
