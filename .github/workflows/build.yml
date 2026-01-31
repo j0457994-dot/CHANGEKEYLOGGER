@@ -1,0 +1,47 @@
+name: Build FUD EXE
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup MSVC Environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    
+    - name: Create dist directory
+      run: mkdir dist
+    
+    - name: Compile EXE
+      shell: cmd
+      run: |
+        cl /O2 /MT /DNDEBUG /Fe:dist/Changes.exe Changes.cpp ^
+        /link winhttp.lib user32.lib shell32.lib ole32.lib ^
+        /SUBSYSTEM:WINDOWS /NODEFAULTLIB /ENTRY:wWinMainCRTStartup ^
+        /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO
+        
+    - name: Verify EXE
+      run: dir dist\Changes.exe
+      
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Changes v${{ github.run_number }}
+        draft: false
+        prerelease: false
+    
+    - name: Upload EXE Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/Changes.exe
+        asset_name: Changes.exe
+        asset_content_type: application/octet-stream
