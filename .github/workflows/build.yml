@@ -1,9 +1,7 @@
-name: Build Executable
+name: Build Changes Keylogger
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -14,16 +12,16 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Setup MSVC
+    - name: Setup MSVC Environment
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Compile
+    - name: Compile with MSVC
+      shell: cmd  # ← Use CMD instead of PowerShell for batch commands
       run: |
-        echo "Compiling Changes keylogger..."
         cl Changes.cpp ^
           /link winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib ^
           /Fe:Changes.exe ^
-          /O2 /MT /W0
+          /O2 /MT /D "UNICODE" /D "_UNICODE"
         
     - name: Verify compilation
       run: |
