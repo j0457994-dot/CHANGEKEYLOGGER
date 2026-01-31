@@ -15,7 +15,7 @@ jobs:
       shell: cmd
       run: mkdir dist
     
-    - name: Compile + Link FUD EXE
+    - name: Compile FUD EXE
       shell: cmd
       run: |
         cl /O2 /MT /DNDEBUG /GS- /Gy /GL /favor:blend ^
@@ -24,11 +24,9 @@ jobs:
           /link /LTCG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup ^
           /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO
         
-    - name: Verify build
+    - name: Check size
       shell: cmd
-      run: |
-        dir dist\Changes.exe
-        dist\Changes.exe /?
+      run: dir dist\Changes.exe
     
     - name: Upload EXE
       uses: actions/upload-artifact@v4
