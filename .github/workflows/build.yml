@@ -1,4 +1,4 @@
-name: Build FUD EXE
+name: Build Changes EXE
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -6,42 +6,38 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup MSVC Environment
+    - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
     
-    - name: Create dist directory
+    - name: Create output dir
+      shell: cmd
       run: mkdir dist
     
-    - name: Compile EXE
+    - name: Compile FUD EXE
       shell: cmd
       run: |
-        cl /O2 /MT /DNDEBUG /Fe:dist/Changes.exe Changes.cpp ^
-        /link winhttp.lib user32.lib shell32.lib ole32.lib ^
-        /SUBSYSTEM:WINDOWS /NODEFAULTLIB /ENTRY:wWinMainCRTStartup ^
-        /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO
+        cl /O2 /MT /DNDEBUG /GS- /Gy /GL /favor:blend ^
+        /Fe:dist/Changes.exe Changes.cpp ^
+        /link kernel32.lib user32.lib shell32.lib ole32.lib winhttp.lib ^
+        /LTCG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup ^
+        /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO /NODEFAULTLIB:msvcrt.lib
         
-    - name: Verify EXE
+    - name: Show file info
+      shell: cmd
       run: dir dist\Changes.exe
-      
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ github.run_number }}
-        release_name: Changes v${{ github.run_number }}
-        draft: false
-        prerelease: false
     
-    - name: Upload EXE Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/Changes.exe
-        asset_name: Changes.exe
-        asset_content_type: application/octet-stream
+        name: Changes.exe
+        path: dist/Changes.exe
+        
+    - name: Create Release
+      if: github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/Changes.exe
+        tag_name: v${{ github.run_number }}
+        name: Changes v${{ github.run_number }}
