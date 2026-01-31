@@ -1,40 +1,14 @@
-name: Build Changes Keylogger
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+name: Build
+on: [push]
 
 jobs:
   compile:
     runs-on: windows-latest
-    
     steps:
     - uses: actions/checkout@v3
-    
-    - name: Setup MSVC Environment
-      uses: ilammy/msvc-dev-cmd@v1
-      
-    - name: Compile with MSVC
-      shell: cmd  # ← Use CMD instead of PowerShell for batch commands
-      run: |
-        cl Changes.cpp ^
-          /link winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib ^
-          /Fe:Changes.exe ^
-          /O2 /MT /D "UNICODE" /D "_UNICODE"
-        
-    - name: Verify compilation
-      run: |
-        if exist Changes.exe (
-          echo "✅ Compilation successful!"
-          echo "File size: $((Get-Item Changes.exe).Length) bytes"
-        ) else (
-          echo "❌ Compilation failed!"
-          exit 1
-        )
-        
-    - name: Upload executable
-      uses: actions/upload-artifact@v4
+    - uses: ilammy/msvc-dev-cmd@v1
+    - run: cl Changes.cpp /FeChanges.exe /O2 /MT winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib
+    - uses: actions/upload-artifact@v4
       with:
-        name: Changes-Keylogger
+        name: Changes.exe
         path: Changes.exe
