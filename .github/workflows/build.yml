@@ -10,10 +10,11 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Compile
+    - name: Compile & Link
       shell: cmd
       run: |
-        cl.exe /O2 /MT /GS- /DNDEBUG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /Fe:ChangesUpgraded.exe ChangesUpgraded.cpp winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib advapi32.lib version.lib
+        cl.exe /O2 /MT /GS- /DNDEBUG /Fe:ChangesUpgraded.exe ChangesUpgraded.cpp 
+        link.exe /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /OUT:ChangesUpgraded.exe ChangesUpgraded.obj winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib wsock32.lib advapi32.lib version.lib
         
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
