@@ -1,27 +1,7 @@
-name: Build ChangesUpgraded.exe
-on: [push, workflow_dispatch]
-
-jobs:
-  build:
-    runs-on: windows-2022
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup MSVC
-      uses: ilammy/msvc-dev-cmd@v1
-      
-    - name: Compile & Link V7
-      shell: cmd
-      run: |
-        cl.exe /O2 /MT /GS- /DNDEBUG /Fe:ChangesUpgraded.exe ChangesUpgraded.cpp 
-        link.exe /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /OUT:ChangesUpgraded.exe ^
-          ChangesUpgraded.obj ^
-          winhttp.lib user32.lib shell32.lib ole32.lib kernel32.lib gdi32.lib ^
-          crypt32.lib iphlpapi.lib ws2_32.lib wsock32.lib advapi32.lib ^
-          version.lib psapi.lib  # 🔥 FIX: Added psapi.lib
-          
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ChangesUpgraded-V7.exe
-        path: ChangesUpgraded.exe
+- name: Compile V7 (Complete)
+  shell: cmd
+  run: |
+    cl.exe /O2 /MT /GS- /DNDEBUG /SUBSYSTEM:WINDOWS /Fe:ChangesUpgraded.exe ^
+      ChangesUpgraded.cpp winhttp.lib user32.lib shell32.lib ole32.lib ^
+      kernel32.lib gdi32.lib crypt32.lib iphlpapi.lib ws2_32.lib ^
+      advapi32.lib version.lib psapi.lib
